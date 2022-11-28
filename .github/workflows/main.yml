@@ -1,0 +1,57 @@
+name: Pull and Upload Curseforge Files
+on:
+  workflow_run:
+    workflows: ["Setup repository"]
+    types:
+      - completed
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 */3 * * *'
+
+jobs:
+  pull_and_upload_files:
+    name: Pull and Upload Files
+    runs-on: ubuntu-latest
+    env:
+      SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: actions/setup-node@v3
+      with:
+        node-version: 16
+
+    - uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - run: pip install -r requirements.txt
+
+    - name: Run Main Script
+      run: python main.py
+      env:
+        ADDON_NAME: ADDON_NAME_HERE
+        ADDON_ID: ADDON_ID_HERE
+        SCRAPER_API_KEY: ${{ env.SCRAPER_API_KEY }}
+        CF_API_TOKEN: ${{ env.CF_API_TOKEN }}
+
+    - name: Get current time
+      uses: srfrnk/current-time@master
+      id: current-time
+      with:
+        format: YYYY.MM.DD.HH.mm
+
+    - name: Create Release
+      uses: ncipollo/release-action@v1
+      with:
+        tag: v${{ steps.current-time.outputs.formattedTime }}
+        name: v${{ steps.current-time.outputs.formattedTime }}
+        draft: false
+        prerelease: false
+        bodyFile: README.md
+        artifacts: "*.zip"
+        artifactContentType: application/zip
+        token: ${{ secrets.GITHUB_TOKEN }}

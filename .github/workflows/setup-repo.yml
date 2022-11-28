@@ -1,0 +1,68 @@
+name: Setup Repository
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - setup.json
+  workflow_run:
+    workflows: ["Template Sync"]
+    types:
+      - completed
+
+jobs:
+  set-up-repo:
+    name: Reinitialize repository
+    runs-on: ubuntu-latest
+    env:
+      REPO_SETUP_TOKEN: ${{ secrets.REPO_SETUP_TOKEN }}
+
+    steps:
+      - name: Do not run on template repository
+        shell: bash
+        run: |
+          curl --silent -X GET \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.baptiste-preview+json" \
+            https://api.github.com/repos/$GITHUB_REPOSITORY \
+            | jq --exit-status '.is_template == false';
+
+      - uses: actions/checkout@v3
+        with:
+          token: ${{ env.REPO_SETUP_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Run Setup Script
+        run: python repo_setup.py
+
+      - name: Update Repo Description
+        shell: bash
+        env:
+          ADDON_AUTHOR: ${{ env.ADDON_AUTHOR }}
+          ADDON_NAME: ${{ env.ADDON_NAME }}
+        run: |
+          curl --silent -X PATCH \
+            -H "Authorization: token ${{ env.REPO_SETUP_TOKEN || secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/$GITHUB_REPOSITORY \
+            -d "{\"description\":\"Mirror of $ADDON_AUTHOR's $ADDON_NAME.\", \"has_issues\":false, \"has_wiki\":false}" > /dev/null
+
+      - name: Check for Git Changes
+        id: vars
+        run: echo ::set-output name=has_git_changes::$(if [ -n "$(git status -s -uno)"]; then echo NO; else echo YES; fi)
+
+      - name: Commit files
+        if: steps.vars.outputs.has_git_changes == 'YES'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git commit -m "Update Repo with Addon Info" -a
+
+      - name: Push changes
+        if: steps.vars.outputs.has_git_changes == 'YES'
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ env.REPO_SETUP_TOKEN || secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
